@@ -288,6 +288,8 @@ require (
 	github.com/valyala/quicktemplate v1.7.0 // indirect
 )
 
+require github.com/xwb1989/sqlparser v0.0.0-20180606152119-120387863bf2
+
 replace (
 	github.com/VictoriaMetrics/VictoriaMetrics => github.com/iLogtail/VictoriaMetrics v1.83.4-ilogtail
 	github.com/VictoriaMetrics/metrics => github.com/iLogtail/metrics v1.23.0-ilogtail
