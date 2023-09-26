@@ -1,7 +1,9 @@
 package sql
 
 import (
+	"crypto/md5"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/xwb1989/sqlparser"
@@ -11,10 +13,12 @@ type stringEvaluator func(stringLogContents) string
 
 func compileStringExpr(e *sqlparser.Expr) (stringEvaluator, error) {
 	if e == nil {
-		return nil, errors.New("expr is nil")
+		return nil, errors.New("expression is nil")
 	}
+
 	switch expr := (*e).(type) {
 	case *sqlparser.SQLVal:
+		// Handling for non-string types should go here
 		constantVal := string(expr.Val)
 		return func(logContents stringLogContents) string {
 			return constantVal
@@ -30,55 +34,98 @@ func compileStringExpr(e *sqlparser.Expr) (stringEvaluator, error) {
 		return compileCaseExpr(expr)
 
 	case *sqlparser.FuncExpr:
-		funcName := expr.Name.Lowered()
+		funcName := strings.ToLower(expr.Name.String())
+		funcList, err := extractFuncs(expr.Exprs)
+		if err != nil {
+			return nil, err
+		}
+
 		switch funcName {
 		case "coalesce":
-			funcList, err := extractFuncs(expr.Exprs)
-			if err != nil {
-				return nil, err
-			}
-			return func(logContents stringLogContents) string {
-				for _, evalFunc := range funcList {
-					val := evalFunc(logContents)
-					if val != "" {
-						return val
-					}
-				}
-				return ""
-			}, nil
+			return handleCoalesce(funcList), nil
 
 		case "concat":
-			funcList, err := extractFuncs(expr.Exprs)
-			if err != nil {
-				return nil, err
+			return handleConcat(funcList), nil
+
+		case "concat_ws":
+			return handleConcatWs(funcList), nil
+
+		case "md5":
+			if len(expr.Exprs) != 1 {
+				return nil, errors.New("wrong number of args for md5")
 			}
-			return func(logContents stringLogContents) string {
-				var result []string
-				for _, evalFunc := range funcList {
-					result = append(result, evalFunc(logContents))
-				}
-				return strings.Join(result, "")
-			}, nil
+			return handleMd5(funcList[0]), nil
+
+		case "lower":
+			if len(expr.Exprs) != 1 {
+				return nil, errors.New("wrong number of args for lower")
+			}
+			return handleLower(funcList[0]), nil
 
 		case "ltrim":
 			if len(expr.Exprs) != 1 {
 				return nil, errors.New("wrong number of args for ltrim")
 			}
-			innerExpr := expr.Exprs[0].(*sqlparser.AliasedExpr).Expr
-			innerEval, err := compileStringExpr(&innerExpr)
-			if err != nil {
-				return nil, err
-			}
-			return func(logContents stringLogContents) string {
-				str := innerEval(logContents)
-				return strings.TrimLeft(str, " ")
-			}, nil
+			return handleLtrim(funcList[0]), nil
 
 		default:
-			return nil, errors.New("unsupported function")
+			return nil, errors.New("Unsupported SQL function: " + funcName)
 		}
 	default:
-		return nil, errors.New("unsupported expression type")
+		return nil, errors.New("Unsupported expression type: " + fmt.Sprintf("%T", expr))
+	}
+}
+
+func handleCoalesce(funcList []stringEvaluator) stringEvaluator {
+	return func(logContents stringLogContents) string {
+		for _, evalFunc := range funcList {
+			val := evalFunc(logContents)
+			if val != "" {
+				return val
+			}
+		}
+		return ""
+	}
+}
+
+func handleConcat(funcList []stringEvaluator) stringEvaluator {
+	return func(logContents stringLogContents) string {
+		result := make([]string, len(funcList))
+		for i, evalFunc := range funcList {
+			result[i] = evalFunc(logContents)
+		}
+		return strings.Join(result, "")
+	}
+}
+
+func handleConcatWs(funcList []stringEvaluator) stringEvaluator {
+	return func(logContents stringLogContents) string {
+		result := make([]string, len(funcList))
+		for i, evalFunc := range funcList {
+			result[i] = evalFunc(logContents)
+		}
+		return strings.Join(result[1:], result[0])
+	}
+}
+
+func handleMd5(eval stringEvaluator) stringEvaluator {
+	return func(logContents stringLogContents) string {
+		str := eval(logContents)
+		return fmt.Sprintf("%x", md5.Sum([]byte(str)))
+	}
+}
+
+func handleLower(eval stringEvaluator) stringEvaluator {
+	return func(slc stringLogContents) string {
+		str := eval(slc)
+		return strings.ToLower(str)
+	}
+}
+
+func handleLtrim(eval stringEvaluator) stringEvaluator {
+	return func(logContents stringLogContents) string {
+		str := eval(logContents)
+		return strings.TrimLeft(str, " ")
 	}
 }
 

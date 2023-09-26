@@ -1,6 +1,7 @@
 package sql
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/alibaba/ilogtail/pkg/models"
@@ -9,23 +10,20 @@ import (
 )
 
 type ProcessorSQL struct {
-	SQL          string
-	stmt         *sqlparser.Select
-	context      pipeline.Context
-	executePlans []executePlan
+	SQL                string
+	context            pipeline.Context
+	newKeys            []string
+	newValueEvaluators []stringEvaluator
+	whereEvaluator     condEvaluator
 }
 
 type stringLogContents models.KeyValues[string]
 
-type executePlan struct {
-	sourceKey string
-	destKey   string
-	sFunc     scalarFunc
-}
-
-type scalarFunc func(string) string
-
 const pluginName = "processor_sql"
+
+func (p *ProcessorSQL) Description() string {
+	return "sql"
+}
 
 func (p *ProcessorSQL) Init(context pipeline.Context) error {
 	if p.SQL == "" {
@@ -37,51 +35,56 @@ func (p *ProcessorSQL) Init(context pipeline.Context) error {
 		return fmt.Errorf("sql parse error: %v", err)
 	}
 
-	var ok bool
-	p.stmt, ok = stmt.(*sqlparser.Select)
+	sel, ok := stmt.(*sqlparser.Select)
 	if !ok {
-		return fmt.Errorf("not select")
+		return errors.New("Not select stmt")
 	}
 
-	// build execute plans
-	for _, expr := range p.stmt.SelectExprs {
-		//TODO: destkey can't be deplicated
-		switch expr := expr.(type) {
-		case *sqlparser.AliasedExpr:
-			fmt.Println("Expression:", sqlparser.String(expr.Expr)) // print the expression
-			sKey := sqlparser.String(expr.Expr)
-			dKey := expr.As.String()
-			if dKey == "" {
-				dKey = sKey
-			}
-			plan := executePlan{
-				sourceKey: sKey,
-				destKey:   dKey,
-			}
-			p.executePlans = append(p.executePlans, plan)
-			if expr.As.String() != "" {
-				fmt.Println("Alias:", expr.As) // print the alias
-			}
-		default:
-			fmt.Println("not support")
-		}
+	err = p.handleSelectExprs(sel.SelectExprs)
+	if err != nil {
+		return err
+	}
+	err = p.handleWherExpr(sel.Where)
+	if err != nil {
+		return err
 	}
 
 	p.context = context
 	return nil
 }
 
-func (p *ProcessorSQL) Description() string {
-	return "sql"
+func (p *ProcessorSQL) handleSelectExprs(sels sqlparser.SelectExprs) (err error) {
+	p.newKeys = make([]string, len(sels))
+	p.newValueEvaluators = make([]stringEvaluator, len(sels))
+	for i, sel := range sels {
+		// TODO: add support for StarExpr
+		aliaExpr := sel.(*sqlparser.AliasedExpr)
+		if aliaExpr.As.IsEmpty() {
+			p.newKeys[i] = sqlparser.String(aliaExpr.Expr)
+		} else {
+			p.newKeys[i] = aliaExpr.As.String()
+		}
+
+		p.newValueEvaluators[i], err = compileStringExpr(&aliaExpr.Expr)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-// func (p *ProcessorSQL) getDestKeys() {
-// 	p.stmt.SelectExprs.
-// }
+func (p *ProcessorSQL) handleWherExpr(where *sqlparser.Where) (err error) {
+	if where == nil {
+		return
+	}
+	p.whereEvaluator, err = compileCondExpr(&where.Expr)
+	if err != nil {
+		return err
+	}
+	return nil
+}
 
 func (p *ProcessorSQL) Process(in *models.PipelineGroupEvents, context pipeline.PipelineContext) {
-	// fmt.Println("😶‍🌫️😶‍🌫️😶‍🌫️😶‍🌫️😶‍🌫️😶‍🌫️")
-
 	for _, event := range in.Events {
 		p.processEvent(event)
 	}
@@ -95,13 +98,38 @@ func (p *ProcessorSQL) processEvent(event models.PipelineEvent) {
 	}
 	log := event.(*models.Log)
 
-	originalContents := log.GetIndices()
+	originalContents, err := toStringLogContents(log.GetIndices())
+	if err != nil {
+		panic("Not string log")
+	}
+
+	if p.whereEvaluator != nil && !p.whereEvaluator(originalContents) {
+		log.SetIndices(nil)
+		return
+	}
 
 	newContents := models.NewLogContents()
 
-	for _, plan := range p.executePlans {
-		newContents.Add(plan.destKey, originalContents.Get(plan.sourceKey))
+	for i, eval := range p.newValueEvaluators {
+		v := eval(originalContents)
+		newContents.Add(p.newKeys[i], v)
 	}
 
 	log.SetIndices(newContents)
+}
+
+func toStringLogContents(logContents models.LogContents) (stringLogContents, error) {
+	slc := newStringLogContents()
+	for key, value := range logContents.Iterator() {
+		value, ok := value.(string)
+		if !ok {
+			return nil, errors.New("not stringLogContents")
+		}
+		slc.Add(key, value)
+	}
+	return slc, nil
+}
+
+func newStringLogContents() stringLogContents {
+	return models.NewKeyValues[string]()
 }

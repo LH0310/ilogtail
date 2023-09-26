@@ -11,10 +11,10 @@ import (
 type condEvaluator func(stringLogContents) bool
 
 func compileCondExpr(e *sqlparser.Expr) (condEvaluator, error) {
-	// if e == nil {
-	// 	// TODO: when will a nil expr be passed
-	// 	return nil, errors.New("expr is nil")
-	// }
+	if e == nil {
+		// TODO: when will a nil expr be passed
+		return nil, errors.New("expr is nil")
+	}
 
 	switch expr := (*e).(type) {
 	case *sqlparser.NotExpr:
