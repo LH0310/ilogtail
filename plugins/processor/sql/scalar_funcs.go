@@ -26,6 +26,12 @@ func (p *ProcessorSQL) initScalarFuncs() {
 		"md5":            p.handleMd5,
 		"lower":          p.handleLower,
 		"ltrim":          p.handleLtrim,
+		"rtrim":          p.handleRtrim,
+		"upper":          p.handleUpper,
+		"length":         p.handleLength,
+		"trim":           p.handleTrim,
+		"sha1":           p.handleSha1,
+		"to_base64":      p.handleToBase64,
 	}
 }
 
@@ -151,14 +157,42 @@ func (p *ProcessorSQL) handleSubstringIndex(exprs sqlparser.Exprs) (stringEvalua
 	}, nil
 }
 
-func (p *ProcessorSQL) handleMd5(exprs sqlparser.Exprs) (stringEvaluator, error) {
-	return p.handleOneArgFunc(exprs, md5)
-}
+// func (p *ProcessorSQL) handleLocate(exprs sqlparser.Exprs) (stringEvaluator, error) {
+// 	return p.handleOneArgFunc(exprs, strLen)
+// }
 
 func (p *ProcessorSQL) handleLower(exprs sqlparser.Exprs) (stringEvaluator, error) {
 	return p.handleOneArgFunc(exprs, strings.ToLower)
 }
 
+func (p *ProcessorSQL) handleUpper(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	return p.handleOneArgFunc(exprs, strings.ToUpper)
+}
+
 func (p *ProcessorSQL) handleLtrim(exprs sqlparser.Exprs) (stringEvaluator, error) {
 	return p.handleOneArgFunc(exprs, ltrim)
+}
+
+func (p *ProcessorSQL) handleRtrim(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	return p.handleOneArgFunc(exprs, rtrim)
+}
+
+func (p *ProcessorSQL) handleTrim(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	return p.handleOneArgFunc(exprs, trim)
+}
+
+func (p *ProcessorSQL) handleLength(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	return p.handleOneArgFunc(exprs, strLen)
+}
+
+func (p *ProcessorSQL) handleMd5(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	return p.handleOneArgFunc(exprs, md5)
+}
+
+func (p *ProcessorSQL) handleSha1(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	return p.handleOneArgFunc(exprs, sha1)
+}
+
+func (p *ProcessorSQL) handleToBase64(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	return p.handleOneArgFunc(exprs, toBase64)
 }

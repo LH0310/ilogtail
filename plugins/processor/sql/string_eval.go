@@ -127,7 +127,7 @@ func (p *ProcessorSQL) compileCaseExpr(caseExpr *sqlparser.CaseExpr) (stringEval
 				return caseValueEvaluator.evaluate(slc) == compareValueEvaluator.evaluate(slc)
 			}
 		} else {
-			cond, err := p.compileCondExpr(&when.Cond)
+			cond, err := p.compileCondExpr(when.Cond)
 			if err != nil {
 				return nil, err
 			}

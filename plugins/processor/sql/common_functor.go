@@ -2,16 +2,40 @@ package sql
 
 import (
 	cryptoMd5 "crypto/md5"
+	cryptoSha1 "crypto/sha1"
+	"encoding/base64"
 	"fmt"
+	"strconv"
 	"strings"
+	"unicode"
 )
 
 func md5(s string) string {
 	return fmt.Sprintf("%x", cryptoMd5.Sum([]byte(s)))
 }
 
+func sha1(s string) string {
+	return fmt.Sprintf("%x", cryptoSha1.Sum([]byte(s)))
+}
+
+func toBase64(s string) string {
+	return base64.StdEncoding.EncodeToString([]byte(s))
+}
+
 func ltrim(s string) string {
-	return strings.TrimLeft(s, " ")
+	return strings.TrimLeftFunc(s, unicode.IsSpace)
+}
+
+func rtrim(s string) string {
+	return strings.TrimRightFunc(s, unicode.IsSpace)
+}
+
+func trim(s string) string {
+	return strings.TrimFunc(s, unicode.IsSpace)
+}
+
+func strLen(s string) string {
+	return strconv.Itoa(len(s))
 }
 
 func substringIndex(str, delim string, count int) string {

@@ -10,14 +10,14 @@ import (
 
 type condEvaluator func(stringLogContents) bool
 
-func (p *ProcessorSQL) compileCondExpr(e *sqlparser.Expr) (condEvaluator, error) {
+func (p *ProcessorSQL) compileCondExpr(e sqlparser.Expr) (condEvaluator, error) {
 	if e == nil {
 		return nil, errors.New("expr is nil")
 	}
 
-	switch expr := (*e).(type) {
+	switch expr := e.(type) {
 	case *sqlparser.NotExpr:
-		condFunc, err := p.compileCondExpr(&expr.Expr)
+		condFunc, err := p.compileCondExpr(expr.Expr)
 		if err != nil {
 			return nil, err
 		}
@@ -26,11 +26,11 @@ func (p *ProcessorSQL) compileCondExpr(e *sqlparser.Expr) (condEvaluator, error)
 		}, nil
 
 	case *sqlparser.AndExpr:
-		leftCondFunc, err := p.compileCondExpr(&expr.Left)
+		leftCondFunc, err := p.compileCondExpr(expr.Left)
 		if err != nil {
 			return nil, err
 		}
-		rightCondFunc, err := p.compileCondExpr(&expr.Right)
+		rightCondFunc, err := p.compileCondExpr(expr.Right)
 		if err != nil {
 			return nil, err
 		}
@@ -39,11 +39,11 @@ func (p *ProcessorSQL) compileCondExpr(e *sqlparser.Expr) (condEvaluator, error)
 		}, nil
 
 	case *sqlparser.OrExpr:
-		leftCondFunc, err := p.compileCondExpr(&expr.Left)
+		leftCondFunc, err := p.compileCondExpr(expr.Left)
 		if err != nil {
 			return nil, err
 		}
-		rightCondFunc, err := p.compileCondExpr(&expr.Right)
+		rightCondFunc, err := p.compileCondExpr(expr.Right)
 		if err != nil {
 			return nil, err
 		}
@@ -78,7 +78,7 @@ func (p *ProcessorSQL) compileCondExpr(e *sqlparser.Expr) (condEvaluator, error)
 	return nil, errors.New("")
 }
 
-func handleRegexpStr(leftStrFunc, rightStrFunc stringEvaluator) (func(stringLogContents) bool, error) {
+func handleRegexpStr(leftStrFunc, rightStrFunc stringEvaluator) (condEvaluator, error) {
 	// 可以通过类型断言只允许静态的 pattern
 	switch right := rightStrFunc.(type) {
 	case *staticStringEvaluator:

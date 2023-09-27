@@ -80,7 +80,7 @@ func (p *ProcessorSQL) handleWherExpr(where *sqlparser.Where) (err error) {
 	if where == nil {
 		return
 	}
-	p.whereEvaluator, err = p.compileCondExpr(&where.Expr)
+	p.whereEvaluator, err = p.compileCondExpr(where.Expr)
 	if err != nil {
 		return err
 	}
@@ -103,6 +103,7 @@ func (p *ProcessorSQL) processEvent(event models.PipelineEvent) {
 
 	originalContents, err := toStringLogContents(log.GetIndices())
 	if err != nil {
+		// TODO: 更温和的处理
 		panic("Not string log")
 	}
 
