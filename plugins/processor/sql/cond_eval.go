@@ -67,33 +67,10 @@ func compileCondExpr(e *sqlparser.Expr) (condEvaluator, error) {
 			}, nil
 
 		case sqlparser.RegexpStr:
-			var re *regexp.Regexp
-			if rightStrFunc.IsStatic {
-				re = regexp.MustCompile(rightStrFunc.StaticValue)
-				return func(slc stringLogContents) bool {
-					return re.MatchString(leftStrFunc.evaluate(slc))
-				}, nil
-			}
-			return func(logContents stringLogContents) bool {
-				re, err := regexp.Compile(rightStrFunc.evaluate(logContents))
-				if err != nil {
-					// TODO: 处理运行时编译错误
-				}
-				return re.MatchString(leftStrFunc.EvalFunc(logContents))
-			}, nil
+			return handleRegexpStr(leftStrFunc, rightStrFunc)
 
 		case sqlparser.LikeStr:
-			if rightStrFunc.IsStatic {
-				pat := rightStrFunc.StaticValue
-				regPat := SQLLikeToRegexp(pat)
-				re := regexp.MustCompile(regPat)
-				return func(slc stringLogContents) bool {
-					return re.MatchString(leftStrFunc.evaluate(slc))
-				}, nil
-			}
-			return func(logContents stringLogContents) bool {
-				return LikeOperator(leftStrFunc.evaluate(logContents), rightStrFunc.evaluate(logContents))
-			}, nil
+			return handleLikeStr(leftStrFunc, rightStrFunc)
 		}
 	default:
 		return nil, errors.New("not a cond expr")
@@ -101,6 +78,45 @@ func compileCondExpr(e *sqlparser.Expr) (condEvaluator, error) {
 
 	//TODO: 为什么这里编译器检测不出这条语句是无法抵达的？
 	return nil, errors.New("")
+}
+
+func handleRegexpStr(leftStrFunc, rightStrFunc stringEvaluator) (func(stringLogContents) bool, error) {
+	// 可以通过类型断言只允许静态的 pattern
+	switch right := rightStrFunc.(type) {
+	case *staticStringEvaluator:
+		re := regexp.MustCompile(right.Value)
+		return func(slc stringLogContents) bool {
+			return re.MatchString(leftStrFunc.evaluate(slc))
+		}, nil
+	case *dynamicStringEvaluator:
+		return func(logContents stringLogContents) bool {
+			re, err := regexp.Compile(right.evaluate(logContents))
+			if err != nil {
+				// TODO: handle runtime compile error
+			}
+			return re.MatchString(leftStrFunc.evaluate(logContents))
+		}, nil
+	default:
+		return nil, errors.New("unknown evaluator type for rightStrFunc")
+	}
+}
+
+func handleLikeStr(leftStrFunc, rightStrFunc stringEvaluator) (func(stringLogContents) bool, error) {
+	switch right := rightStrFunc.(type) {
+	case *staticStringEvaluator:
+		pat := right.Value
+		regPat := SQLLikeToRegexp(pat)
+		re := regexp.MustCompile(regPat)
+		return func(slc stringLogContents) bool {
+			return re.MatchString(leftStrFunc.evaluate(slc))
+		}, nil
+	case *dynamicStringEvaluator:
+		return func(logContents stringLogContents) bool {
+			return LikeOperator(leftStrFunc.evaluate(logContents), right.evaluate(logContents))
+		}, nil
+	default:
+		return nil, errors.New("unknown evaluator type for rightStrFunc")
+	}
 }
 
 func SQLLikeToRegexp(sqlLike string) string {

@@ -8,7 +8,7 @@ import (
 )
 
 type (
-	scalarHandler func(sqlparser.Exprs) (*stringEvaluator, error)
+	scalarHandler func(sqlparser.Exprs) (stringEvaluator, error)
 	strToStrFunc  func(string) string
 )
 
@@ -29,7 +29,7 @@ func initScalarFuncs() {
 	}
 }
 
-func handleOneArgFunc(exprs sqlparser.Exprs, transform strToStrFunc) (*stringEvaluator, error) {
+func handleOneArgFunc(exprs sqlparser.Exprs, transform strToStrFunc) (stringEvaluator, error) {
 	if len(exprs) != 1 {
 		return nil, ErrArg
 	}
@@ -38,25 +38,27 @@ func handleOneArgFunc(exprs sqlparser.Exprs, transform strToStrFunc) (*stringEva
 		return nil, err
 	}
 
-	eval := &stringEvaluator{
-		IsStatic: argEvaluator.IsStatic,
+	switch evaluator := argEvaluator.(type) {
+	case *staticStringEvaluator:
+		return &staticStringEvaluator{
+			Value: transform(evaluator.Value),
+		}, nil
+	case *dynamicStringEvaluator:
+		return &dynamicStringEvaluator{
+			EvalFunc: func(slc stringLogContents) string {
+				return transform(evaluator.evaluate(slc))
+			},
+		}, nil
+	default:
+		return nil, errors.New("Unknown evaluator type")
 	}
-
-	if eval.IsStatic {
-		eval.StaticValue = transform(argEvaluator.StaticValue)
-	} else {
-		eval.EvalFunc = func(slc stringLogContents) string {
-			return transform(argEvaluator.evaluate(slc))
-		}
-	}
-	return eval, nil
 }
 
 // Only support string type arguments currently.
 // Returns the first non-empty string among its arguments, for that in go, string can't be nil,
 // differing from MySQL's behavior, which returns the first non-NULL value.
-func handleCoalesce(exprs sqlparser.Exprs) (*stringEvaluator, error) {
-	argEvaluators := make([]*stringEvaluator, len(exprs))
+func handleCoalesce(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	argEvaluators := make([]stringEvaluator, len(exprs))
 	for i, expr := range exprs {
 		var err error
 		argEvaluators[i], err = compileStringExpr(&expr)
@@ -65,8 +67,7 @@ func handleCoalesce(exprs sqlparser.Exprs) (*stringEvaluator, error) {
 		}
 	}
 	// 这里其实可以做编译期优化，如果前面有常量的话这就变成一个常量函数了，但应该没人会这么写吧
-	return &stringEvaluator{
-		IsStatic: false,
+	return &dynamicStringEvaluator{
 		EvalFunc: func(slc stringLogContents) string {
 			for _, argEvaluator := range argEvaluators {
 				str := argEvaluator.evaluate(slc)
@@ -79,8 +80,8 @@ func handleCoalesce(exprs sqlparser.Exprs) (*stringEvaluator, error) {
 	}, nil
 }
 
-func handleConcat(exprs sqlparser.Exprs) (*stringEvaluator, error) {
-	argEvaluators := make([]*stringEvaluator, len(exprs))
+func handleConcat(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	argEvaluators := make([]stringEvaluator, len(exprs))
 	for i, expr := range exprs {
 		var err error
 		argEvaluators[i], err = compileStringExpr(&expr)
@@ -89,8 +90,7 @@ func handleConcat(exprs sqlparser.Exprs) (*stringEvaluator, error) {
 		}
 	}
 
-	return &stringEvaluator{
-		IsStatic: false,
+	return &dynamicStringEvaluator{
 		EvalFunc: func(slc stringLogContents) string {
 			result := make([]string, len(argEvaluators))
 			for i, eval := range argEvaluators {
@@ -101,8 +101,8 @@ func handleConcat(exprs sqlparser.Exprs) (*stringEvaluator, error) {
 	}, nil
 }
 
-func handleConcatWs(exprs sqlparser.Exprs) (*stringEvaluator, error) {
-	argEvaluators := make([]*stringEvaluator, len(exprs))
+func handleConcatWs(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	argEvaluators := make([]stringEvaluator, len(exprs))
 	for i, expr := range exprs {
 		var err error
 		argEvaluators[i], err = compileStringExpr(&expr)
@@ -111,8 +111,7 @@ func handleConcatWs(exprs sqlparser.Exprs) (*stringEvaluator, error) {
 		}
 	}
 
-	return &stringEvaluator{
-		IsStatic: false,
+	return &dynamicStringEvaluator{
 		EvalFunc: func(slc stringLogContents) string {
 			result := make([]string, len(argEvaluators))
 			for i, eval := range argEvaluators {
@@ -123,7 +122,7 @@ func handleConcatWs(exprs sqlparser.Exprs) (*stringEvaluator, error) {
 	}, nil
 }
 
-func handleSubstringIndex(exprs sqlparser.Exprs) (*stringEvaluator, error) {
+func handleSubstringIndex(exprs sqlparser.Exprs) (stringEvaluator, error) {
 	if len(exprs) != 3 {
 		return nil, ErrArg
 	}
@@ -143,8 +142,7 @@ func handleSubstringIndex(exprs sqlparser.Exprs) (*stringEvaluator, error) {
 		return nil, err
 	}
 
-	return &stringEvaluator{
-		IsStatic: false,
+	return &dynamicStringEvaluator{
 		EvalFunc: func(slc stringLogContents) string {
 			str := strEvaluator.evaluate(slc)
 			delim := delimEvaluator.evaluate(slc)
@@ -153,14 +151,14 @@ func handleSubstringIndex(exprs sqlparser.Exprs) (*stringEvaluator, error) {
 	}, nil
 }
 
-func handleMd5(exprs sqlparser.Exprs) (*stringEvaluator, error) {
+func handleMd5(exprs sqlparser.Exprs) (stringEvaluator, error) {
 	return handleOneArgFunc(exprs, md5)
 }
 
-func handleLower(exprs sqlparser.Exprs) (*stringEvaluator, error) {
+func handleLower(exprs sqlparser.Exprs) (stringEvaluator, error) {
 	return handleOneArgFunc(exprs, strings.ToLower)
 }
 
-func handleLtrim(exprs sqlparser.Exprs) (*stringEvaluator, error) {
+func handleLtrim(exprs sqlparser.Exprs) (stringEvaluator, error) {
 	return handleOneArgFunc(exprs, ltrim)
 }

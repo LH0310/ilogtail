@@ -13,7 +13,7 @@ type ProcessorSQL struct {
 	SQL                string
 	context            pipeline.Context
 	newKeys            []string
-	newValueEvaluators []*stringEvaluator
+	newValueEvaluators []stringEvaluator
 	whereEvaluator     condEvaluator
 }
 
@@ -37,7 +37,7 @@ func (p *ProcessorSQL) Init(context pipeline.Context) error {
 
 	sel, ok := stmt.(*sqlparser.Select)
 	if !ok {
-		return errors.New("Not select stmt")
+		return errors.New("not select stmt")
 	}
 
 	initScalarFuncs()
@@ -57,7 +57,7 @@ func (p *ProcessorSQL) Init(context pipeline.Context) error {
 
 func (p *ProcessorSQL) handleSelectExprs(sels sqlparser.SelectExprs) (err error) {
 	p.newKeys = make([]string, len(sels))
-	p.newValueEvaluators = make([]*stringEvaluator, len(sels))
+	p.newValueEvaluators = make([]stringEvaluator, len(sels))
 	for i, sel := range sels {
 		// TODO: add support for StarExpr
 		aliaExpr := sel.(*sqlparser.AliasedExpr)

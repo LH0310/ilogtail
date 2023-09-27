@@ -1,15 +1,21 @@
 package sql
 
-type stringEvaluator struct {
-	IsStatic    bool
-	StaticValue string
-	EvalFunc    func(stringLogContents) string
+type stringEvaluator interface {
+	evaluate(slc stringLogContents) string
 }
 
-func (se *stringEvaluator) evaluate(slc stringLogContents) string {
-	if se.IsStatic {
-		return se.StaticValue
-	} else {
-		return se.EvalFunc(slc)
-	}
+type staticStringEvaluator struct {
+	Value string
+}
+
+func (sse *staticStringEvaluator) evaluate(_ stringLogContents) string {
+	return sse.Value
+}
+
+type dynamicStringEvaluator struct {
+	EvalFunc func(stringLogContents) string
+}
+
+func (dse *dynamicStringEvaluator) evaluate(slc stringLogContents) string {
+	return dse.EvalFunc(slc)
 }

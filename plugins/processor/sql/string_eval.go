@@ -7,7 +7,7 @@ import (
 	"github.com/xwb1989/sqlparser"
 )
 
-func compileStringExpr(e *sqlparser.Expr) (*stringEvaluator, error) {
+func compileStringExpr(e *sqlparser.Expr) (stringEvaluator, error) {
 	if e == nil {
 		return nil, errors.New("expression is nil")
 	}
@@ -16,16 +16,15 @@ func compileStringExpr(e *sqlparser.Expr) (*stringEvaluator, error) {
 	case *sqlparser.SQLVal:
 		// TODO: Handling for non-string types should go here
 		constantVal := string(expr.Val)
-		return &stringEvaluator{
-			IsStatic:    true,
-			StaticValue: constantVal,
+		return &staticStringEvaluator{
+			Value: constantVal,
 		}, nil
 
 	case *sqlparser.ColName:
 		columnName := expr.Name.String()
-		return &stringEvaluator{
-			IsStatic: false,
+		return &dynamicStringEvaluator{
 			EvalFunc: func(slc stringLogContents) string {
+				// TODO: NoKeyError
 				return slc.Get(columnName)
 			},
 		}, nil
@@ -43,7 +42,7 @@ func compileStringExpr(e *sqlparser.Expr) (*stringEvaluator, error) {
 		if handler, ok := scalarHandlerMap[funcName]; ok {
 			return handler(exprs)
 		} else {
-			return nil, fmt.Errorf("Unsupported function: %s", funcName)
+			return nil, fmt.Errorf("unsupported function: %s", funcName)
 		}
 
 	case *sqlparser.SubstrExpr:
@@ -54,15 +53,15 @@ func compileStringExpr(e *sqlparser.Expr) (*stringEvaluator, error) {
 	return nil, errors.New("")
 }
 
-func compileCaseExpr(caseExpr *sqlparser.CaseExpr) (*stringEvaluator, error) {
+func compileCaseExpr(caseExpr *sqlparser.CaseExpr) (stringEvaluator, error) {
 	isValueCase := caseExpr.Expr != nil
 	whenCont := len(caseExpr.Whens)
 
-	valueEvaluators := make([]*stringEvaluator, whenCont)
+	valueEvaluators := make([]stringEvaluator, whenCont)
 	condEvaluators := make([]condEvaluator, whenCont)
 
-	var caseValueEvaluator *stringEvaluator
-	var defaultEvaluator *stringEvaluator
+	var caseValueEvaluator stringEvaluator
+	var defaultEvaluator stringEvaluator
 
 	if caseExpr.Else != nil {
 		var err error
@@ -104,8 +103,7 @@ func compileCaseExpr(caseExpr *sqlparser.CaseExpr) (*stringEvaluator, error) {
 			condEvaluators[i] = cond
 		}
 	}
-	return &stringEvaluator{
-		IsStatic: false,
+	return &dynamicStringEvaluator{
 		EvalFunc: func(slc stringLogContents) string {
 			for i, cond := range condEvaluators {
 				if cond(slc) {
