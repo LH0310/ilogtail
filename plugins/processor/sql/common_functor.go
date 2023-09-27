@@ -35,3 +35,37 @@ func substringIndex(str, delim string, count int) string {
 
 	return ""
 }
+
+func mysqlSubstrNoLen(str string, pos int) string {
+	strLen := len(str)
+
+	if pos == 0 || pos > strLen || pos < -strLen {
+		return ""
+	}
+
+	if pos < 0 {
+		pos = strLen + pos + 1
+	}
+
+	return str[pos-1:]
+}
+
+func mysqlSubstrWithLen(str string, pos int, subLen int) string {
+	strLen := len(str)
+
+	if pos == 0 || subLen < 1 || pos > strLen || pos < -strLen {
+		return ""
+	}
+
+	if pos < 0 {
+		pos = strLen + pos + 1
+	}
+
+	endPos := pos + subLen - 1
+
+	if endPos > strLen {
+		endPos = strLen
+	}
+
+	return str[pos-1 : endPos]
+}

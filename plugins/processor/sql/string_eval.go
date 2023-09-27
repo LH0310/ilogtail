@@ -4,15 +4,16 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/alibaba/ilogtail/pkg/logger"
 	"github.com/xwb1989/sqlparser"
 )
 
-func compileStringExpr(e *sqlparser.Expr) (stringEvaluator, error) {
+func (p *ProcessorSQL) compileStringExpr(e sqlparser.Expr) (stringEvaluator, error) {
 	if e == nil {
 		return nil, errors.New("expression is nil")
 	}
 
-	switch expr := (*e).(type) {
+	switch expr := e.(type) {
 	case *sqlparser.SQLVal:
 		// TODO: Handling for non-string types should go here
 		constantVal := string(expr.Val)
@@ -24,13 +25,17 @@ func compileStringExpr(e *sqlparser.Expr) (stringEvaluator, error) {
 		columnName := expr.Name.String()
 		return &dynamicStringEvaluator{
 			EvalFunc: func(slc stringLogContents) string {
-				// TODO: NoKeyError
-				return slc.Get(columnName)
+				if slc.Contains(columnName) {
+					return slc.Get(columnName)
+				} else if p.NoKeyError {
+					logger.Warning(p.context.GetRuntimeContext(), "SQL_FIND_ALARM", "cannot find key", columnName)
+				}
+				return ""
 			},
 		}, nil
 
 	case *sqlparser.CaseExpr:
-		return compileCaseExpr(expr)
+		return p.compileCaseExpr(expr)
 
 	case *sqlparser.FuncExpr:
 		funcName := expr.Name.Lowered()
@@ -46,14 +51,40 @@ func compileStringExpr(e *sqlparser.Expr) (stringEvaluator, error) {
 		}
 
 	case *sqlparser.SubstrExpr:
+		from, err := evaluateIntExpr(expr.From)
+		if err != nil {
+			return nil, err
+		}
+
+		eval, err := p.compileStringExpr(expr.Name)
+		if err != nil {
+			return nil, err
+		}
+
+		if expr.To == nil {
+			return &dynamicStringEvaluator{
+				EvalFunc: func(slc stringLogContents) string {
+					return mysqlSubstrNoLen(eval.evaluate(slc), from)
+				},
+			}, nil
+		}
+
+		length, err := evaluateIntExpr(expr.To)
+		if err != nil {
+			return nil, err
+		}
+		return &dynamicStringEvaluator{
+			EvalFunc: func(slc stringLogContents) string {
+				return mysqlSubstrWithLen(eval.evaluate(slc), from, length)
+			},
+		}, nil
 
 	default:
 		return nil, errors.New("Unsupported expression type: " + fmt.Sprintf("%T", expr))
 	}
-	return nil, errors.New("")
 }
 
-func compileCaseExpr(caseExpr *sqlparser.CaseExpr) (stringEvaluator, error) {
+func (p *ProcessorSQL) compileCaseExpr(caseExpr *sqlparser.CaseExpr) (stringEvaluator, error) {
 	isValueCase := caseExpr.Expr != nil
 	whenCont := len(caseExpr.Whens)
 
@@ -65,7 +96,7 @@ func compileCaseExpr(caseExpr *sqlparser.CaseExpr) (stringEvaluator, error) {
 
 	if caseExpr.Else != nil {
 		var err error
-		defaultEvaluator, err = compileStringExpr(&caseExpr.Else)
+		defaultEvaluator, err = p.compileStringExpr(caseExpr.Else)
 		if err != nil {
 			return nil, err
 		}
@@ -73,21 +104,21 @@ func compileCaseExpr(caseExpr *sqlparser.CaseExpr) (stringEvaluator, error) {
 
 	if isValueCase {
 		var err error
-		caseValueEvaluator, err = compileStringExpr(&caseExpr.Expr)
+		caseValueEvaluator, err = p.compileStringExpr(caseExpr.Expr)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	for i, when := range caseExpr.Whens {
-		whenValueEvaluator, err := compileStringExpr(&when.Val)
+		whenValueEvaluator, err := p.compileStringExpr(when.Val)
 		if err != nil {
 			return nil, err
 		}
 		valueEvaluators[i] = whenValueEvaluator
 
 		if isValueCase {
-			compareValueEvaluator, err := compileStringExpr(&when.Cond)
+			compareValueEvaluator, err := p.compileStringExpr(when.Cond)
 			if err != nil {
 				return nil, err
 			}
@@ -96,7 +127,7 @@ func compileCaseExpr(caseExpr *sqlparser.CaseExpr) (stringEvaluator, error) {
 				return caseValueEvaluator.evaluate(slc) == compareValueEvaluator.evaluate(slc)
 			}
 		} else {
-			cond, err := compileCondExpr(&when.Cond)
+			cond, err := p.compileCondExpr(&when.Cond)
 			if err != nil {
 				return nil, err
 			}

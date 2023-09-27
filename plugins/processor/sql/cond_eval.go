@@ -10,14 +10,14 @@ import (
 
 type condEvaluator func(stringLogContents) bool
 
-func compileCondExpr(e *sqlparser.Expr) (condEvaluator, error) {
+func (p *ProcessorSQL) compileCondExpr(e *sqlparser.Expr) (condEvaluator, error) {
 	if e == nil {
 		return nil, errors.New("expr is nil")
 	}
 
 	switch expr := (*e).(type) {
 	case *sqlparser.NotExpr:
-		condFunc, err := compileCondExpr(&expr.Expr)
+		condFunc, err := p.compileCondExpr(&expr.Expr)
 		if err != nil {
 			return nil, err
 		}
@@ -26,11 +26,11 @@ func compileCondExpr(e *sqlparser.Expr) (condEvaluator, error) {
 		}, nil
 
 	case *sqlparser.AndExpr:
-		leftCondFunc, err := compileCondExpr(&expr.Left)
+		leftCondFunc, err := p.compileCondExpr(&expr.Left)
 		if err != nil {
 			return nil, err
 		}
-		rightCondFunc, err := compileCondExpr(&expr.Right)
+		rightCondFunc, err := p.compileCondExpr(&expr.Right)
 		if err != nil {
 			return nil, err
 		}
@@ -39,11 +39,11 @@ func compileCondExpr(e *sqlparser.Expr) (condEvaluator, error) {
 		}, nil
 
 	case *sqlparser.OrExpr:
-		leftCondFunc, err := compileCondExpr(&expr.Left)
+		leftCondFunc, err := p.compileCondExpr(&expr.Left)
 		if err != nil {
 			return nil, err
 		}
-		rightCondFunc, err := compileCondExpr(&expr.Right)
+		rightCondFunc, err := p.compileCondExpr(&expr.Right)
 		if err != nil {
 			return nil, err
 		}
@@ -52,11 +52,11 @@ func compileCondExpr(e *sqlparser.Expr) (condEvaluator, error) {
 		}, nil
 
 	case *sqlparser.ComparisonExpr:
-		leftStrFunc, err := compileStringExpr(&expr.Left)
+		leftStrFunc, err := p.compileStringExpr(expr.Left)
 		if err != nil {
 			return nil, err
 		}
-		rightStrFunc, err := compileStringExpr(&expr.Right)
+		rightStrFunc, err := p.compileStringExpr(expr.Right)
 		if err != nil {
 			return nil, err
 		}
@@ -75,8 +75,6 @@ func compileCondExpr(e *sqlparser.Expr) (condEvaluator, error) {
 	default:
 		return nil, errors.New("not a cond expr")
 	}
-
-	//TODO: 为什么这里编译器检测不出这条语句是无法抵达的？
 	return nil, errors.New("")
 }
 
@@ -126,7 +124,6 @@ func SQLLikeToRegexp(sqlLike string) string {
 }
 
 func LikeOperator(input, pattern string) bool {
-	// 可能不够全面，可以看看别的项目实现，这种应该很好复用
 	regexpPattern := SQLLikeToRegexp(pattern)
 	re := regexp.MustCompile(regexpPattern)
 	return re.MatchString(input)

@@ -17,23 +17,23 @@ var (
 	ErrArg           = errors.New("wrong type/number for arguments")
 )
 
-func initScalarFuncs() {
+func (p *ProcessorSQL) initScalarFuncs() {
 	scalarHandlerMap = map[string]scalarHandler{
-		"coalesce":       handleCoalesce,
-		"concat":         handleConcat,
-		"concat_ws":      handleConcatWs,
-		"substringindex": handleSubstringIndex,
-		"md5":            handleMd5,
-		"lower":          handleLower,
-		"ltrim":          handleLtrim,
+		"coalesce":       p.handleCoalesce,
+		"concat":         p.handleConcat,
+		"concat_ws":      p.handleConcatWs,
+		"substringindex": p.handleSubstringIndex,
+		"md5":            p.handleMd5,
+		"lower":          p.handleLower,
+		"ltrim":          p.handleLtrim,
 	}
 }
 
-func handleOneArgFunc(exprs sqlparser.Exprs, transform strToStrFunc) (stringEvaluator, error) {
+func (p *ProcessorSQL) handleOneArgFunc(exprs sqlparser.Exprs, transform strToStrFunc) (stringEvaluator, error) {
 	if len(exprs) != 1 {
 		return nil, ErrArg
 	}
-	argEvaluator, err := compileStringExpr(&exprs[0])
+	argEvaluator, err := p.compileStringExpr(exprs[0])
 	if err != nil {
 		return nil, err
 	}
@@ -50,18 +50,18 @@ func handleOneArgFunc(exprs sqlparser.Exprs, transform strToStrFunc) (stringEval
 			},
 		}, nil
 	default:
-		return nil, errors.New("Unknown evaluator type")
+		return nil, errors.New("unknown evaluator type")
 	}
 }
 
 // Only support string type arguments currently.
 // Returns the first non-empty string among its arguments, for that in go, string can't be nil,
 // differing from MySQL's behavior, which returns the first non-NULL value.
-func handleCoalesce(exprs sqlparser.Exprs) (stringEvaluator, error) {
+func (p *ProcessorSQL) handleCoalesce(exprs sqlparser.Exprs) (stringEvaluator, error) {
 	argEvaluators := make([]stringEvaluator, len(exprs))
 	for i, expr := range exprs {
 		var err error
-		argEvaluators[i], err = compileStringExpr(&expr)
+		argEvaluators[i], err = p.compileStringExpr(expr)
 		if err != nil {
 			return nil, err
 		}
@@ -80,11 +80,11 @@ func handleCoalesce(exprs sqlparser.Exprs) (stringEvaluator, error) {
 	}, nil
 }
 
-func handleConcat(exprs sqlparser.Exprs) (stringEvaluator, error) {
+func (p *ProcessorSQL) handleConcat(exprs sqlparser.Exprs) (stringEvaluator, error) {
 	argEvaluators := make([]stringEvaluator, len(exprs))
 	for i, expr := range exprs {
 		var err error
-		argEvaluators[i], err = compileStringExpr(&expr)
+		argEvaluators[i], err = p.compileStringExpr(expr)
 		if err != nil {
 			return nil, err
 		}
@@ -101,11 +101,11 @@ func handleConcat(exprs sqlparser.Exprs) (stringEvaluator, error) {
 	}, nil
 }
 
-func handleConcatWs(exprs sqlparser.Exprs) (stringEvaluator, error) {
+func (p *ProcessorSQL) handleConcatWs(exprs sqlparser.Exprs) (stringEvaluator, error) {
 	argEvaluators := make([]stringEvaluator, len(exprs))
 	for i, expr := range exprs {
 		var err error
-		argEvaluators[i], err = compileStringExpr(&expr)
+		argEvaluators[i], err = p.compileStringExpr(expr)
 		if err != nil {
 			return nil, err
 		}
@@ -122,22 +122,22 @@ func handleConcatWs(exprs sqlparser.Exprs) (stringEvaluator, error) {
 	}, nil
 }
 
-func handleSubstringIndex(exprs sqlparser.Exprs) (stringEvaluator, error) {
+func (p *ProcessorSQL) handleSubstringIndex(exprs sqlparser.Exprs) (stringEvaluator, error) {
 	if len(exprs) != 3 {
 		return nil, ErrArg
 	}
 
-	strEvaluator, err := compileStringExpr(&exprs[0])
+	strEvaluator, err := p.compileStringExpr(exprs[0])
 	if err != nil {
 		return nil, err
 	}
 
-	delimEvaluator, err := compileStringExpr(&exprs[1])
+	delimEvaluator, err := p.compileStringExpr(exprs[1])
 	if err != nil {
 		return nil, err
 	}
 
-	count, err := evaluateIntExpr(&exprs[2])
+	count, err := evaluateIntExpr(exprs[2])
 	if err != nil {
 		return nil, err
 	}
@@ -151,14 +151,14 @@ func handleSubstringIndex(exprs sqlparser.Exprs) (stringEvaluator, error) {
 	}, nil
 }
 
-func handleMd5(exprs sqlparser.Exprs) (stringEvaluator, error) {
-	return handleOneArgFunc(exprs, md5)
+func (p *ProcessorSQL) handleMd5(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	return p.handleOneArgFunc(exprs, md5)
 }
 
-func handleLower(exprs sqlparser.Exprs) (stringEvaluator, error) {
-	return handleOneArgFunc(exprs, strings.ToLower)
+func (p *ProcessorSQL) handleLower(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	return p.handleOneArgFunc(exprs, strings.ToLower)
 }
 
-func handleLtrim(exprs sqlparser.Exprs) (stringEvaluator, error) {
-	return handleOneArgFunc(exprs, ltrim)
+func (p *ProcessorSQL) handleLtrim(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	return p.handleOneArgFunc(exprs, ltrim)
 }

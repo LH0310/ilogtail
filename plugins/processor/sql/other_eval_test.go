@@ -20,7 +20,7 @@ func TestEvaluateIntExpr(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		result, err := evaluateIntExpr(&test.in)
+		result, err := evaluateIntExpr(test.in)
 
 		if test.err == nil {
 			assert.NoError(t, err)

@@ -15,6 +15,7 @@ type ProcessorSQL struct {
 	newKeys            []string
 	newValueEvaluators []stringEvaluator
 	whereEvaluator     condEvaluator
+	NoKeyError         bool
 }
 
 type stringLogContents models.KeyValues[string]
@@ -40,7 +41,7 @@ func (p *ProcessorSQL) Init(context pipeline.Context) error {
 		return errors.New("not select stmt")
 	}
 
-	initScalarFuncs()
+	p.initScalarFuncs()
 
 	err = p.handleSelectExprs(sel.SelectExprs)
 	if err != nil {
@@ -67,7 +68,7 @@ func (p *ProcessorSQL) handleSelectExprs(sels sqlparser.SelectExprs) (err error)
 			p.newKeys[i] = aliaExpr.As.String()
 		}
 
-		p.newValueEvaluators[i], err = compileStringExpr(&aliaExpr.Expr)
+		p.newValueEvaluators[i], err = p.compileStringExpr(aliaExpr.Expr)
 		if err != nil {
 			return err
 		}
@@ -79,7 +80,7 @@ func (p *ProcessorSQL) handleWherExpr(where *sqlparser.Where) (err error) {
 	if where == nil {
 		return
 	}
-	p.whereEvaluator, err = compileCondExpr(&where.Expr)
+	p.whereEvaluator, err = p.compileCondExpr(&where.Expr)
 	if err != nil {
 		return err
 	}
