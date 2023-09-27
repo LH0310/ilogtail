@@ -1,143 +1,68 @@
 package sql
 
 import (
-	"crypto/md5"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/xwb1989/sqlparser"
 )
 
-type stringEvaluator func(stringLogContents) string
-
-func compileStringExpr(e *sqlparser.Expr) (stringEvaluator, error) {
+func compileStringExpr(e *sqlparser.Expr) (*stringEvaluator, error) {
 	if e == nil {
 		return nil, errors.New("expression is nil")
 	}
 
 	switch expr := (*e).(type) {
 	case *sqlparser.SQLVal:
-		// Handling for non-string types should go here
+		// TODO: Handling for non-string types should go here
 		constantVal := string(expr.Val)
-		return func(logContents stringLogContents) string {
-			return constantVal
+		return &stringEvaluator{
+			IsStatic:    true,
+			StaticValue: constantVal,
 		}, nil
 
 	case *sqlparser.ColName:
 		columnName := expr.Name.String()
-		return func(logContents stringLogContents) string {
-			return logContents.Get(columnName)
+		return &stringEvaluator{
+			IsStatic: false,
+			EvalFunc: func(slc stringLogContents) string {
+				return slc.Get(columnName)
+			},
 		}, nil
 
 	case *sqlparser.CaseExpr:
 		return compileCaseExpr(expr)
 
 	case *sqlparser.FuncExpr:
-		funcName := strings.ToLower(expr.Name.String())
-		funcList, err := extractFuncs(expr.Exprs)
+		funcName := expr.Name.Lowered()
+		exprs, err := extractExprs(expr.Exprs)
 		if err != nil {
 			return nil, err
 		}
 
-		switch funcName {
-		case "coalesce":
-			return handleCoalesce(funcList), nil
-
-		case "concat":
-			return handleConcat(funcList), nil
-
-		case "concat_ws":
-			return handleConcatWs(funcList), nil
-
-		case "md5":
-			if len(expr.Exprs) != 1 {
-				return nil, errors.New("wrong number of args for md5")
-			}
-			return handleMd5(funcList[0]), nil
-
-		case "lower":
-			if len(expr.Exprs) != 1 {
-				return nil, errors.New("wrong number of args for lower")
-			}
-			return handleLower(funcList[0]), nil
-
-		case "ltrim":
-			if len(expr.Exprs) != 1 {
-				return nil, errors.New("wrong number of args for ltrim")
-			}
-			return handleLtrim(funcList[0]), nil
-
-		default:
-			return nil, errors.New("Unsupported SQL function: " + funcName)
+		if handler, ok := scalarHandlerMap[funcName]; ok {
+			return handler(exprs)
+		} else {
+			return nil, fmt.Errorf("Unsupported function: %s", funcName)
 		}
+
+	case *sqlparser.SubstrExpr:
+
 	default:
 		return nil, errors.New("Unsupported expression type: " + fmt.Sprintf("%T", expr))
 	}
+	return nil, errors.New("")
 }
 
-func handleCoalesce(funcList []stringEvaluator) stringEvaluator {
-	return func(logContents stringLogContents) string {
-		for _, evalFunc := range funcList {
-			val := evalFunc(logContents)
-			if val != "" {
-				return val
-			}
-		}
-		return ""
-	}
-}
-
-func handleConcat(funcList []stringEvaluator) stringEvaluator {
-	return func(logContents stringLogContents) string {
-		result := make([]string, len(funcList))
-		for i, evalFunc := range funcList {
-			result[i] = evalFunc(logContents)
-		}
-		return strings.Join(result, "")
-	}
-}
-
-func handleConcatWs(funcList []stringEvaluator) stringEvaluator {
-	return func(logContents stringLogContents) string {
-		result := make([]string, len(funcList))
-		for i, evalFunc := range funcList {
-			result[i] = evalFunc(logContents)
-		}
-		return strings.Join(result[1:], result[0])
-	}
-}
-
-func handleMd5(eval stringEvaluator) stringEvaluator {
-	return func(logContents stringLogContents) string {
-		str := eval(logContents)
-		return fmt.Sprintf("%x", md5.Sum([]byte(str)))
-	}
-}
-
-func handleLower(eval stringEvaluator) stringEvaluator {
-	return func(slc stringLogContents) string {
-		str := eval(slc)
-		return strings.ToLower(str)
-	}
-}
-
-func handleLtrim(eval stringEvaluator) stringEvaluator {
-	return func(logContents stringLogContents) string {
-		str := eval(logContents)
-		return strings.TrimLeft(str, " ")
-	}
-}
-
-func compileCaseExpr(caseExpr *sqlparser.CaseExpr) (stringEvaluator, error) {
+func compileCaseExpr(caseExpr *sqlparser.CaseExpr) (*stringEvaluator, error) {
 	isValueCase := caseExpr.Expr != nil
 	whenCont := len(caseExpr.Whens)
 
-	valueEvaluators := make([]stringEvaluator, whenCont)
+	valueEvaluators := make([]*stringEvaluator, whenCont)
 	condEvaluators := make([]condEvaluator, whenCont)
 
-	var caseValueEvaluator stringEvaluator
-	var defaultEvaluator stringEvaluator
+	var caseValueEvaluator *stringEvaluator
+	var defaultEvaluator *stringEvaluator
 
 	if caseExpr.Else != nil {
 		var err error
@@ -169,7 +94,7 @@ func compileCaseExpr(caseExpr *sqlparser.CaseExpr) (stringEvaluator, error) {
 			}
 
 			condEvaluators[i] = func(slc stringLogContents) bool {
-				return caseValueEvaluator(slc) == compareValueEvaluator(slc)
+				return caseValueEvaluator.evaluate(slc) == compareValueEvaluator.evaluate(slc)
 			}
 		} else {
 			cond, err := compileCondExpr(&when.Cond)
@@ -179,31 +104,30 @@ func compileCaseExpr(caseExpr *sqlparser.CaseExpr) (stringEvaluator, error) {
 			condEvaluators[i] = cond
 		}
 	}
-	return func(slc stringLogContents) string {
-		for i, cond := range condEvaluators {
-			if cond(slc) {
-				return valueEvaluators[i](slc)
+	return &stringEvaluator{
+		IsStatic: false,
+		EvalFunc: func(slc stringLogContents) string {
+			for i, cond := range condEvaluators {
+				if cond(slc) {
+					return valueEvaluators[i].evaluate(slc)
+				}
 			}
-		}
-		if defaultEvaluator != nil {
-			return defaultEvaluator(slc)
-		}
-		return ""
+			if defaultEvaluator != nil {
+				return defaultEvaluator.evaluate(slc)
+			}
+			return ""
+		},
 	}, nil
 }
 
-func extractFuncs(exprs sqlparser.SelectExprs) ([]stringEvaluator, error) {
-	funcs := make([]stringEvaluator, len(exprs))
-	for i, se := range exprs {
+func extractExprs(selExprs sqlparser.SelectExprs) (exprs sqlparser.Exprs, err error) {
+	exprs = make(sqlparser.Exprs, len(selExprs))
+	for i, se := range selExprs {
 		ae, ok := se.(*sqlparser.AliasedExpr)
 		if !ok {
-			return nil, errors.New("not an AliasedExpr")
+			return nil, errors.New("not an AliasedExpr in func args")
 		}
-		var err error
-		funcs[i], err = compileStringExpr(&ae.Expr)
-		if err != nil {
-			return nil, err
-		}
+		exprs[i] = ae.Expr
 	}
-	return funcs, nil
+	return exprs, nil
 }

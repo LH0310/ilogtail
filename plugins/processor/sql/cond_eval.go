@@ -12,7 +12,6 @@ type condEvaluator func(stringLogContents) bool
 
 func compileCondExpr(e *sqlparser.Expr) (condEvaluator, error) {
 	if e == nil {
-		// TODO: when will a nil expr be passed
 		return nil, errors.New("expr is nil")
 	}
 
@@ -64,21 +63,36 @@ func compileCondExpr(e *sqlparser.Expr) (condEvaluator, error) {
 		switch expr.Operator {
 		case sqlparser.EqualStr:
 			return func(logContents stringLogContents) bool {
-				return leftStrFunc(logContents) == rightStrFunc(logContents)
+				return leftStrFunc.evaluate(logContents) == rightStrFunc.evaluate(logContents)
 			}, nil
 
 		case sqlparser.RegexpStr:
+			var re *regexp.Regexp
+			if rightStrFunc.IsStatic {
+				re = regexp.MustCompile(rightStrFunc.StaticValue)
+				return func(slc stringLogContents) bool {
+					return re.MatchString(leftStrFunc.evaluate(slc))
+				}, nil
+			}
 			return func(logContents stringLogContents) bool {
-				re, err := regexp.Compile(rightStrFunc(logContents))
+				re, err := regexp.Compile(rightStrFunc.evaluate(logContents))
 				if err != nil {
-					// TODO: 处理错误，如果是运行时的，得想一下，也许得加一个配置
+					// TODO: 处理运行时编译错误
 				}
-				return re.MatchString(leftStrFunc(logContents))
+				return re.MatchString(leftStrFunc.EvalFunc(logContents))
 			}, nil
 
 		case sqlparser.LikeStr:
+			if rightStrFunc.IsStatic {
+				pat := rightStrFunc.StaticValue
+				regPat := SQLLikeToRegexp(pat)
+				re := regexp.MustCompile(regPat)
+				return func(slc stringLogContents) bool {
+					return re.MatchString(leftStrFunc.evaluate(slc))
+				}, nil
+			}
 			return func(logContents stringLogContents) bool {
-				return LikeOperator(leftStrFunc(logContents), rightStrFunc(logContents))
+				return LikeOperator(leftStrFunc.evaluate(logContents), rightStrFunc.evaluate(logContents))
 			}, nil
 		}
 	default:
