@@ -32,6 +32,16 @@ func (p *ProcessorSQL) initScalarFuncs() {
 		"trim":           p.handleTrim,
 		"sha1":           p.handleSha1,
 		"to_base64":      p.handleToBase64,
+		"locate":         p.handleLocate,
+		"left":           p.handleLeft,
+		"right":          p.handleRight,
+		"regexp_instr":   p.handleRegexpInstr,
+		"regexp_like":    p.handleRegexpLike,
+		"regexp_replace": p.handleRegexpReplace,
+		"regexp_substr":  p.handleRegexpSubstr,
+		"replace":        p.handleReplace,
+		"sha2":           p.handleSha2,
+		"aes_encrypt":    p.handleAesEncrypt,
 	}
 }
 
@@ -72,7 +82,6 @@ func (p *ProcessorSQL) handleCoalesce(exprs sqlparser.Exprs) (stringEvaluator, e
 			return nil, err
 		}
 	}
-	// 这里其实可以做编译期优化，如果前面有常量的话这就变成一个常量函数了，但应该没人会这么写吧
 	return &dynamicStringEvaluator{
 		EvalFunc: func(slc stringLogContents) string {
 			for _, argEvaluator := range argEvaluators {
@@ -157,9 +166,283 @@ func (p *ProcessorSQL) handleSubstringIndex(exprs sqlparser.Exprs) (stringEvalua
 	}, nil
 }
 
-// func (p *ProcessorSQL) handleLocate(exprs sqlparser.Exprs) (stringEvaluator, error) {
-// 	return p.handleOneArgFunc(exprs, strLen)
-// }
+func (p *ProcessorSQL) handleLocate(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	if len(exprs) == 3 {
+		return p.handleLocatePos(exprs)
+	}
+	if len(exprs) != 2 {
+		return nil, ErrArg
+	}
+
+	substrEvaluator, err := p.compileStringExpr(exprs[0])
+	if err != nil {
+		return nil, err
+	}
+	strEvaluator, err := p.compileStringExpr(exprs[1])
+	if err != nil {
+		return nil, err
+	}
+
+	return &dynamicStringEvaluator{
+		EvalFunc: func(slc stringLogContents) string {
+			substr := substrEvaluator.evaluate(slc)
+			str := strEvaluator.evaluate(slc)
+			return locate(substr, str, 1)
+		},
+	}, nil
+}
+
+func (p *ProcessorSQL) handleLocatePos(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	if len(exprs) != 3 {
+		return nil, ErrArg
+	}
+
+	substrEvaluator, err := p.compileStringExpr(exprs[0])
+	if err != nil {
+		return nil, err
+	}
+	strEvaluator, err := p.compileStringExpr(exprs[1])
+	if err != nil {
+		return nil, err
+	}
+	pos, err := evaluateIntExpr(exprs[2])
+	if err != nil {
+		return nil, err
+	}
+
+	return &dynamicStringEvaluator{
+		EvalFunc: func(slc stringLogContents) string {
+			substr := substrEvaluator.evaluate(slc)
+			str := strEvaluator.evaluate(slc)
+			return locate(substr, str, pos)
+		},
+	}, nil
+}
+
+func (p *ProcessorSQL) handleLeft(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	if len(exprs) != 2 {
+		return nil, ErrArg
+	}
+
+	strEvaluator, err := p.compileStringExpr(exprs[0])
+	if err != nil {
+		return nil, err
+	}
+
+	count, err := evaluateIntExpr(exprs[1])
+	if err != nil {
+		return nil, err
+	}
+
+	return &dynamicStringEvaluator{
+		EvalFunc: func(slc stringLogContents) string {
+			str := strEvaluator.evaluate(slc)
+			return str[:count]
+		},
+	}, nil
+}
+
+func (p *ProcessorSQL) handleRight(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	if len(exprs) != 2 {
+		return nil, ErrArg
+	}
+
+	strEvaluator, err := p.compileStringExpr(exprs[0])
+	if err != nil {
+		return nil, err
+	}
+
+	count, err := evaluateIntExpr(exprs[1])
+	if err != nil {
+		return nil, err
+	}
+
+	return &dynamicStringEvaluator{
+		EvalFunc: func(slc stringLogContents) string {
+			str := strEvaluator.evaluate(slc)
+			return str[len(str)-count:]
+		},
+	}, nil
+}
+
+func (p *ProcessorSQL) handleRegexpInstr(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	if len(exprs) != 2 {
+		return nil, ErrArg
+	}
+
+	strEvaluator, err := p.compileStringExpr(exprs[0])
+	if err != nil {
+		return nil, err
+	}
+
+	patternEvaluator, err := p.compileStringExpr(exprs[1])
+	if err != nil {
+		return nil, err
+	}
+
+	return &dynamicStringEvaluator{
+		EvalFunc: func(slc stringLogContents) string {
+			str := strEvaluator.evaluate(slc)
+			pattern := patternEvaluator.evaluate(slc)
+			return regexpInstr(str, pattern)
+		},
+	}, nil
+}
+
+func (p *ProcessorSQL) handleRegexpLike(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	if len(exprs) != 2 {
+		return nil, ErrArg
+	}
+
+	strEvaluator, err := p.compileStringExpr(exprs[0])
+	if err != nil {
+		return nil, err
+	}
+
+	patternEvaluator, err := p.compileStringExpr(exprs[1])
+	if err != nil {
+		return nil, err
+	}
+
+	return &dynamicStringEvaluator{
+		EvalFunc: func(slc stringLogContents) string {
+			str := strEvaluator.evaluate(slc)
+			pattern := patternEvaluator.evaluate(slc)
+			return regexpLike(str, pattern)
+		},
+	}, nil
+}
+
+func (p *ProcessorSQL) handleRegexpReplace(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	if len(exprs) != 3 {
+		return nil, ErrArg
+	}
+
+	strEvaluator, err := p.compileStringExpr(exprs[0])
+	if err != nil {
+		return nil, err
+	}
+
+	patternEvaluator, err := p.compileStringExpr(exprs[1])
+	if err != nil {
+		return nil, err
+	}
+
+	replaceEvaluator, err := p.compileStringExpr(exprs[2])
+	if err != nil {
+		return nil, err
+	}
+
+	return &dynamicStringEvaluator{
+		EvalFunc: func(slc stringLogContents) string {
+			str := strEvaluator.evaluate(slc)
+			pattern := patternEvaluator.evaluate(slc)
+			replace := replaceEvaluator.evaluate(slc)
+			return regexpReplace(str, pattern, replace)
+		},
+	}, nil
+}
+
+func (p *ProcessorSQL) handleRegexpSubstr(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	if len(exprs) != 2 {
+		return nil, ErrArg
+	}
+
+	strEvaluator, err := p.compileStringExpr(exprs[0])
+	if err != nil {
+		return nil, err
+	}
+	patternEvaluator, err := p.compileStringExpr(exprs[1])
+	if err != nil {
+		return nil, err
+	}
+
+	return &dynamicStringEvaluator{
+		EvalFunc: func(slc stringLogContents) string {
+			str := strEvaluator.evaluate(slc)
+			pattern := patternEvaluator.evaluate(slc)
+			return regexpSubstr(str, pattern)
+		},
+	}, nil
+}
+
+func (p *ProcessorSQL) handleReplace(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	if len(exprs) != 3 {
+		return nil, ErrArg
+	}
+
+	strEvaluator, err := p.compileStringExpr(exprs[0])
+	if err != nil {
+		return nil, err
+	}
+	oldEvaluator, err := p.compileStringExpr(exprs[1])
+	if err != nil {
+		return nil, err
+	}
+	newEvaluator, err := p.compileStringExpr(exprs[2])
+	if err != nil {
+		return nil, err
+	}
+
+	return &dynamicStringEvaluator{
+		EvalFunc: func(slc stringLogContents) string {
+			str := strEvaluator.evaluate(slc)
+			old := oldEvaluator.evaluate(slc)
+			new := newEvaluator.evaluate(slc)
+			return strings.Replace(str, old, new, -1)
+		},
+	}, nil
+}
+
+func (p *ProcessorSQL) handleSha2(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	if len(exprs) != 2 {
+		return nil, ErrArg
+	}
+
+	hashLen, err := evaluateIntExpr(exprs[1])
+	if err != nil {
+		return nil, err
+	}
+	sha2Func, err := sha2Generator(hashLen)
+	if err != nil {
+		return nil, err
+	}
+	strEvaluator, err := p.compileStringExpr(exprs[0])
+	if err != nil {
+		return nil, err
+	}
+
+	return &dynamicStringEvaluator{
+		EvalFunc: func(slc stringLogContents) string {
+			str := strEvaluator.evaluate(slc)
+			return sha2Func(str)
+		},
+	}, nil
+}
+
+// AES_ENCRYPT
+func (p *ProcessorSQL) handleAesEncrypt(exprs sqlparser.Exprs) (stringEvaluator, error) {
+	if len(exprs) != 2 {
+		return nil, ErrArg
+	}
+
+	strEvaluator, err := p.compileStringExpr(exprs[0])
+	if err != nil {
+		return nil, err
+	}
+	keyEvaluator, err := p.compileStringExpr(exprs[1])
+	if err != nil {
+		return nil, err
+	}
+
+	return &dynamicStringEvaluator{
+		EvalFunc: func(slc stringLogContents) string {
+			str := strEvaluator.evaluate(slc)
+			key := keyEvaluator.evaluate(slc)
+			return aesEncrypt(str, key)
+		},
+	}, nil
+}
 
 func (p *ProcessorSQL) handleLower(exprs sqlparser.Exprs) (stringEvaluator, error) {
 	return p.handleOneArgFunc(exprs, strings.ToLower)

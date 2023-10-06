@@ -29,3 +29,27 @@ func TestSubstringIndex(t *testing.T) {
 		})
 	}
 }
+
+func Test_locate(t *testing.T) {
+	type args struct {
+		substr string
+		str    string
+		pos    int
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{"1", args{"bar", "foobarbar", 1}, "4"},
+		{"2", args{"xbar", "foobarbar", 1}, "0"},
+		{"3", args{"bar", "foobarbar", 5}, "7"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := locate(tt.args.substr, tt.args.str, tt.args.pos); got != tt.want {
+				t.Errorf("locate() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
