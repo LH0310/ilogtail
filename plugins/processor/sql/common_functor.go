@@ -196,5 +196,5 @@ func regexpSubstr(str, pattern string) string {
 		return ""
 	}
 
-	return matches[1]
+	return matches[0]
 }

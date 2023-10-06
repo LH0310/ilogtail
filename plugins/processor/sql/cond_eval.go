@@ -3,7 +3,6 @@ package sql
 import (
 	"errors"
 	"regexp"
-	"strings"
 
 	"github.com/xwb1989/sqlparser"
 )
@@ -16,6 +15,14 @@ func (p *ProcessorSQL) compileCondExpr(e sqlparser.Expr) (condEvaluator, error) 
 	}
 
 	switch expr := e.(type) {
+	case *sqlparser.ParenExpr:
+		return p.compileCondExpr(expr.Expr)
+
+	case sqlparser.BoolVal:
+		return func(logContents stringLogContents) bool {
+			return bool(expr)
+		}, nil
+
 	case *sqlparser.NotExpr:
 		condFunc, err := p.compileCondExpr(expr.Expr)
 		if err != nil {
@@ -65,21 +72,39 @@ func (p *ProcessorSQL) compileCondExpr(e sqlparser.Expr) (condEvaluator, error) 
 			return func(logContents stringLogContents) bool {
 				return leftStrFunc.evaluate(logContents) == rightStrFunc.evaluate(logContents)
 			}, nil
-
+		case sqlparser.NotEqualStr:
+			return func(logContents stringLogContents) bool {
+				return leftStrFunc.evaluate(logContents) != rightStrFunc.evaluate(logContents)
+			}, nil
+		case sqlparser.LessThanStr:
+			return func(logContents stringLogContents) bool {
+				return leftStrFunc.evaluate(logContents) < rightStrFunc.evaluate(logContents)
+			}, nil
+		case sqlparser.LessEqualStr:
+			return func(logContents stringLogContents) bool {
+				return leftStrFunc.evaluate(logContents) <= rightStrFunc.evaluate(logContents)
+			}, nil
+		case sqlparser.GreaterThanStr:
+			return func(logContents stringLogContents) bool {
+				return leftStrFunc.evaluate(logContents) > rightStrFunc.evaluate(logContents)
+			}, nil
+		case sqlparser.GreaterEqualStr:
+			return func(logContents stringLogContents) bool {
+				return leftStrFunc.evaluate(logContents) >= rightStrFunc.evaluate(logContents)
+			}, nil
 		case sqlparser.RegexpStr:
 			return handleRegexpStr(leftStrFunc, rightStrFunc)
-
 		case sqlparser.LikeStr:
 			return handleLikeStr(leftStrFunc, rightStrFunc)
+		default:
+			return nil, errors.New("unknown operator: " + expr.Operator)
 		}
 	default:
 		return nil, errors.New("not a cond expr")
 	}
-	return nil, errors.New("")
 }
 
 func handleRegexpStr(leftStrFunc, rightStrFunc stringEvaluator) (condEvaluator, error) {
-	// 可以通过类型断言只允许静态的 pattern
 	switch right := rightStrFunc.(type) {
 	case *staticStringEvaluator:
 		re := regexp.MustCompile(right.Value)
@@ -91,6 +116,7 @@ func handleRegexpStr(leftStrFunc, rightStrFunc stringEvaluator) (condEvaluator, 
 			re, err := regexp.Compile(right.evaluate(logContents))
 			if err != nil {
 				// TODO: handle runtime compile error
+				return false
 			}
 			return re.MatchString(leftStrFunc.evaluate(logContents))
 		}, nil
@@ -110,21 +136,15 @@ func handleLikeStr(leftStrFunc, rightStrFunc stringEvaluator) (func(stringLogCon
 		}, nil
 	case *dynamicStringEvaluator:
 		return func(logContents stringLogContents) bool {
-			return LikeOperator(leftStrFunc.evaluate(logContents), right.evaluate(logContents))
+			pat := right.evaluate(logContents)
+			regPat := SQLLikeToRegexp(pat)
+			re, err := regexp.Compile(regPat)
+			if err != nil {
+				return false
+			}
+			return re.MatchString(leftStrFunc.evaluate(logContents))
 		}, nil
 	default:
 		return nil, errors.New("unknown evaluator type for rightStrFunc")
 	}
-}
-
-func SQLLikeToRegexp(sqlLike string) string {
-	regexpLike := strings.ReplaceAll(sqlLike, "%", ".*")
-	regexpLike = strings.ReplaceAll(regexpLike, "_", ".")
-	return "^" + regexpLike + "$"
-}
-
-func LikeOperator(input, pattern string) bool {
-	regexpPattern := SQLLikeToRegexp(pattern)
-	re := regexp.MustCompile(regexpPattern)
-	return re.MatchString(input)
 }

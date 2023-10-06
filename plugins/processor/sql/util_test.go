@@ -1,6 +1,11 @@
 package sql
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	"github.com/xwb1989/sqlparser"
+)
 
 func TestSQLLikeToRegexp(t *testing.T) {
 	tests := []struct {
@@ -21,27 +26,14 @@ func TestSQLLikeToRegexp(t *testing.T) {
 	}
 }
 
-func TestLikeOperator(t *testing.T) {
-	tests := []struct {
-		input    string
-		pattern  string
-		expected bool
-	}{
-		{"hello", "%", true},
-		{"h", "_", true},
-		{"hello", "%lo", true},
-		{"hello", "he%", true},
-		{"world", "or%", false},
-		{"world", "%o_", false},
-		{"Chrome on iOS. Mozilla/5.0 (iPhone; CPU iPhone OS 16_5_1 like Mac OS X)",
-			"%iPhone OS%",
-			true},
-	}
-
-	for _, test := range tests {
-		actual := LikeOperator(test.input, test.pattern)
-		if actual != test.expected {
-			t.Errorf("Expected %v but got %v for input '%s' and pattern '%s'", test.expected, actual, test.input, test.pattern)
+func extractExprs(selExprs sqlparser.SelectExprs) (exprs sqlparser.Exprs, err error) {
+	exprs = make(sqlparser.Exprs, len(selExprs))
+	for i, se := range selExprs {
+		ae, ok := se.(*sqlparser.AliasedExpr)
+		if !ok {
+			return nil, errors.New("not an AliasedExpr in func args")
 		}
+		exprs[i] = ae.Expr
 	}
+	return exprs, nil
 }

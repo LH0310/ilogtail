@@ -60,8 +60,10 @@ func (p *ProcessorSQL) handleSelectExprs(sels sqlparser.SelectExprs) (err error)
 	p.newKeys = make([]string, len(sels))
 	p.newValueEvaluators = make([]stringEvaluator, len(sels))
 	for i, sel := range sels {
-		// TODO: add support for StarExpr
-		aliaExpr := sel.(*sqlparser.AliasedExpr)
+		aliaExpr, ok := sel.(*sqlparser.AliasedExpr)
+		if !ok {
+			return errors.New("not aliased expr")
+		}
 		if aliaExpr.As.IsEmpty() {
 			p.newKeys[i] = sqlparser.String(aliaExpr.Expr)
 		} else {
@@ -78,6 +80,9 @@ func (p *ProcessorSQL) handleSelectExprs(sels sqlparser.SelectExprs) (err error)
 
 func (p *ProcessorSQL) handleWherExpr(where *sqlparser.Where) (err error) {
 	if where == nil {
+		p.whereEvaluator = func(slc stringLogContents) bool {
+			return true
+		}
 		return
 	}
 	p.whereEvaluator, err = p.compileCondExpr(where.Expr)
@@ -96,18 +101,17 @@ func (p *ProcessorSQL) Process(in *models.PipelineGroupEvents, context pipeline.
 
 func (p *ProcessorSQL) processEvent(event models.PipelineEvent) {
 	if event.GetType() != models.EventTypeLogging {
-		fmt.Println("eventtypt not support")
+		fmt.Println("event typt not support")
 		return
 	}
 	log := event.(*models.Log)
 
 	originalContents, err := toStringLogContents(log.GetIndices())
 	if err != nil {
-		// TODO: 更温和的处理
 		panic("Not string log")
 	}
 
-	if p.whereEvaluator != nil && !p.whereEvaluator(originalContents) {
+	if !p.whereEvaluator(originalContents) {
 		log.SetIndices(nil)
 		return
 	}
@@ -122,18 +126,10 @@ func (p *ProcessorSQL) processEvent(event models.PipelineEvent) {
 	log.SetIndices(newContents)
 }
 
-func toStringLogContents(logContents models.LogContents) (stringLogContents, error) {
-	slc := newStringLogContents()
-	for key, value := range logContents.Iterator() {
-		value, ok := value.(string)
-		if !ok {
-			return nil, errors.New("not stringLogContents")
+func init() {
+	pipeline.Processors[pluginName] = func() pipeline.Processor {
+		return &ProcessorSQL{
+			NoKeyError: false,
 		}
-		slc.Add(key, value)
 	}
-	return slc, nil
-}
-
-func newStringLogContents() stringLogContents {
-	return models.NewKeyValues[string]()
 }

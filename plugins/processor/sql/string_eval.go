@@ -14,8 +14,10 @@ func (p *ProcessorSQL) compileStringExpr(e sqlparser.Expr) (stringEvaluator, err
 	}
 
 	switch expr := e.(type) {
+	case *sqlparser.ParenExpr:
+		return p.compileStringExpr(expr.Expr)
+
 	case *sqlparser.SQLVal:
-		// TODO: Handling for non-string types should go here
 		constantVal := string(expr.Val)
 		return &staticStringEvaluator{
 			Value: constantVal,
@@ -147,16 +149,4 @@ func (p *ProcessorSQL) compileCaseExpr(caseExpr *sqlparser.CaseExpr) (stringEval
 			return ""
 		},
 	}, nil
-}
-
-func extractExprs(selExprs sqlparser.SelectExprs) (exprs sqlparser.Exprs, err error) {
-	exprs = make(sqlparser.Exprs, len(selExprs))
-	for i, se := range selExprs {
-		ae, ok := se.(*sqlparser.AliasedExpr)
-		if !ok {
-			return nil, errors.New("not an AliasedExpr in func args")
-		}
-		exprs[i] = ae.Expr
-	}
-	return exprs, nil
 }
