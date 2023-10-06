@@ -23,6 +23,17 @@ func (p *ProcessorSQL) compileStringExpr(e sqlparser.Expr) (stringEvaluator, err
 			Value: constantVal,
 		}, nil
 
+	case sqlparser.BoolVal:
+		var constantVal string
+		if bool(expr) {
+			constantVal = "1"
+		} else {
+			constantVal = "0"
+		}
+		return &staticStringEvaluator{
+			Value: constantVal,
+		}, nil
+
 	case *sqlparser.ColName:
 		columnName := expr.Name.String()
 		return &dynamicStringEvaluator{

@@ -1,47 +1,60 @@
-# SQL 处理插件
+SQL 数据处理
+---
 
-可以分为两个运行阶段，编译期和运行期，下面分别介绍
+该插件可以处理单层的结构化日志，使用selection clause筛选列，where clause筛选行，同时支持as重命名列，以及标量函数对列进行处理。
 
-## 运行期
+#### 参数说明
 
-根据项目说明书，输入的内容为`KeyValues[string]`，所以先把`models.LogContents`改为`string`类型。
+插件类型（type）为 `processor_sql`。
 
-编译后的结果是可以根据一个 `stringLogContents` 计算求值的算子，所以这里直接把一条log传递给where算子，根据结果决定是否保留。
+|参数|类型|必选或可选|参数说明|
+|----|----|----|----|
+|NoKeyError|bool|可选|无匹配的key是否记录，默认false。|
+|SQL|string|必选|处理日志的 SQL 语句|
 
-然后对每一个目标列进行求值，根据计算结果生成新的LogContents，替换原有的，就完成了对一条日志的处理。
+#### 示例
 
-## 编译
+- 输入
 
-主要的工作都在这一部分。
+```json
+"timestamp":  "1234567890",
+"nanosecond": "123456789",
+"event_type": "js_error",
+"idfa":       "abcdefg",
+"user_agent": "Chrome on iOS. Mozilla/5.0 (iPhone; CPU iPhone OS 16_5_1 like Mac OS X)",
+"action":     "click",
+"element":    "#Button",
+```
 
-核心思路是利用函数式编程的特性，在遍历ast的过程中，通过闭包构建所需的算子。
+- 配置详情
 
-### stringEvaluator
+```yaml
+processors:
+  - type: processor_sql
+    SQL: - |
+    SELECT 
+	    CONCAT_WS(".", timestamp, nanosecond) AS event_time,
+	    event_type,
+	    MD5(idfa) AS idfa,
+	    CASE 
+	    	WHEN user_agent LIKE "%iPhone OS%" THEN "ios"
+	    	ELSE "android"
+	    END AS os,
+	    action,
+	    LOWER(element) AS element
+    FROM 
+	    log
+    WHERE 
+	    event_type = "js_error";
+```
 
-最开始实现的其实这只是一个函数类型，后面在处理regex的时候发现，这样写因为无法区别常量和来自log的内容，每次处理都要重新编译一次regex，对性能影响比较大，就变成了现在这版。
+- 配置后结果
 
-可以判断是否为staticValue，是的话可以在编译期就处理了。
-
-这样也可以配置有的东西不允许动态，比如正则表达式，如果是的话需要处理运行时的正则编译错误。
-
-或者有可能存在根据日志的一个标志位的信息通过一个case语句选择不同的正则的情况，现在对这样的还不能做到正则预先编译，我得重新考虑一下对正则有关的特殊处理。
-
-另外这样写也可以避免对一个常量字符串套了多个函数，每次运行都要求值的情况（虽然真实场景大概不会这样写）
-
-如果后续要拓展一些功能的话，这样也比较容易加
-
-### condEvaluator
-
-目前还是一个函数类型，如果为了一致性的话可以改成和上面一样的。
-
-### common_functor
-
-目前还只作用在sql包里面，后面可以拓展到各个processor
-
-## 疑问
-
-对每条日志都要做类型的转化感觉有点影响性能，但是这涉及到对外部的日志处理的类型的更改，不知道这有什么解决方案，或者改变这个插件的输入类型，让它可以处理非string的数据？
-
-## 补充说明
-
-现在代码里面有一些重复的逻辑，我后面会重构dry一下
+```json
+"event_time": "1234567890.123456789",
+"event_type": "js_error",
+"idfa":       "7ac66c0f148de9519b8bd264312c4d64",
+"os":         "ios",
+"action":     "click",
+"element":    "#button",
+```
