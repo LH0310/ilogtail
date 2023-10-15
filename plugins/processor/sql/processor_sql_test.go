@@ -1,23 +1,16 @@
 package sql
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/alibaba/ilogtail/pkg/logger"
 	"github.com/alibaba/ilogtail/pkg/models"
 	"github.com/alibaba/ilogtail/pkg/pipeline"
 	"github.com/alibaba/ilogtail/plugins/test/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func newProcessor(sql string) (*ProcessorSQL, error) {
-	ctx := mock.NewEmptyContext("p", "l", "c")
-	processor := &ProcessorSQL{
-		SQL: sql,
-	}
-	err := processor.Init(ctx)
-	return processor, err
-}
 
 type logTest struct {
 	contents map[string]interface{}
@@ -27,6 +20,20 @@ type logTest struct {
 type sqlTestCase struct {
 	sql  string
 	logs []logTest
+}
+
+func init() {
+	logger.InitTestLogger(logger.OptionOpenMemoryReceiver)
+}
+
+func newProcessor(sql string) (*ProcessorSQL, error) {
+	ctx := mock.NewEmptyContext("p", "l", "c")
+	processor := &ProcessorSQL{
+		SQL:        sql,
+		NoKeyError: true,
+	}
+	err := processor.Init(ctx)
+	return processor, err
 }
 
 func TestProcessorSQL(t *testing.T) {
@@ -139,6 +146,120 @@ WHERE
 				},
 			},
 		},
+		{
+			sql: "select substr(a, 2) c from log",
+			logs: []logTest{
+				{
+					contents: map[string]interface{}{
+						"a": "foobar",
+					},
+					expected: map[string]interface{}{
+						"c": "oobar",
+					},
+				},
+			},
+		},
+		{
+			sql: "select substr(a, 2, 4) c from log",
+			logs: []logTest{
+				{
+					contents: map[string]interface{}{
+						"a": "foobar",
+					},
+					expected: map[string]interface{}{
+						"c": "ooba",
+					},
+				},
+			},
+		},
+		{
+			sql: "select substr(a from 2 for 4) c from log",
+			logs: []logTest{
+				{
+					contents: map[string]interface{}{
+						"a": "foobar",
+					},
+					expected: map[string]interface{}{
+						"c": "ooba",
+					},
+				},
+			},
+		},
+		{
+			sql: `
+SELECT 
+	CASE a
+		WHEN 'v1' THEN "1"
+		WHEN 'v2' THEN "2"
+		ELSE "3"
+	END AS col1
+FROM log
+`,
+			logs: []logTest{
+				{
+					contents: map[string]interface{}{
+						"a": "v1",
+					},
+					expected: map[string]interface{}{
+						"col1": "1",
+					},
+				},
+				{
+					contents: map[string]interface{}{
+						"a": "v",
+					},
+					expected: map[string]interface{}{
+						"col1": "3",
+					},
+				},
+			},
+		},
+		{
+			sql: `
+SELECT 
+	CASE
+		WHEN a > 'foo' AND TRUE THEN "1"
+		WHEN NOT (a < 'd') THEN "2"
+		WHEN a != 'a' THEN "3"
+		ELSE "4"
+	END AS col1
+FROM log
+`,
+			logs: []logTest{
+				{
+					contents: map[string]interface{}{
+						"a": "g",
+					},
+					expected: map[string]interface{}{
+						"col1": "1",
+					},
+				},
+				{
+					contents: map[string]interface{}{
+						"a": "e",
+					},
+					expected: map[string]interface{}{
+						"col1": "2",
+					},
+				},
+				{
+					contents: map[string]interface{}{
+						"a": "b",
+					},
+					expected: map[string]interface{}{
+						"col1": "3",
+					},
+				},
+				{
+					contents: map[string]interface{}{
+						"a": "a",
+					},
+					expected: map[string]interface{}{
+						"col1": "4",
+					},
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -170,4 +291,23 @@ WHERE
 			}
 		}
 	}
+}
+
+func TestNoKeyError(t *testing.T) {
+	processor, err := newProcessor("select b from log")
+	require.NoError(t, err)
+
+	log := models.NewLog("", nil, "", "", "", models.NewTags(), 0)
+	log.GetIndices().Add("a", "test_value")
+
+	logs := &models.PipelineGroupEvents{
+		Events: []models.PipelineEvent{log},
+	}
+	context := pipeline.NewObservePipelineConext(10)
+	processor.Process(logs, context)
+	context.Collector().CollectList(logs)
+
+	memoryLog, ok := logger.ReadMemoryLog(1)
+	require.True(t, ok)
+	assert.True(t, strings.Contains(memoryLog, "SQL_FIND_ALARM\tcannot find key:b"), "got: %s", memoryLog)
 }

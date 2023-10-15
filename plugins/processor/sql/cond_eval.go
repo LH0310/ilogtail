@@ -100,7 +100,7 @@ func (p *ProcessorSQL) compileCondExpr(e sqlparser.Expr) (condEvaluator, error) 
 			return nil, errors.New("unknown operator: " + expr.Operator)
 		}
 	default:
-		return nil, errors.New("not a cond expr")
+		return nil, errors.New("unsupport expression type: " + sqlparser.String(expr))
 	}
 }
 

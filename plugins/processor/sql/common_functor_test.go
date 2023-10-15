@@ -4,6 +4,81 @@ import (
 	"testing"
 )
 
+func TestLtrim(t *testing.T) {
+	testCases := []struct {
+		input    string
+		expected string
+	}{
+		{"   leading spaces", "leading spaces"},
+		{"no leading spaces", "no leading spaces"},
+		{"", ""},
+		{"\t\ttabs", "tabs"},
+	}
+
+	for _, tc := range testCases {
+		got := ltrim(tc.input)
+		if got != tc.expected {
+			t.Errorf("ltrim(%q) = %q; expected %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestRtrim(t *testing.T) {
+	testCases := []struct {
+		input    string
+		expected string
+	}{
+		{"trailing spaces   ", "trailing spaces"},
+		{"no trailing spaces", "no trailing spaces"},
+		{"", ""},
+		{"tabs\t\t", "tabs"},
+	}
+
+	for _, tc := range testCases {
+		got := rtrim(tc.input)
+		if got != tc.expected {
+			t.Errorf("rtrim(%q) = %q; expected %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestTrim(t *testing.T) {
+	testCases := []struct {
+		input    string
+		expected string
+	}{
+		{"  both sides  ", "both sides"},
+		{"no trim", "no trim"},
+		{"", ""},
+		{"\t\ttabs\t\t", "tabs"},
+	}
+
+	for _, tc := range testCases {
+		got := trim(tc.input)
+		if got != tc.expected {
+			t.Errorf("trim(%q) = %q; expected %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestStrLen(t *testing.T) {
+	testCases := []struct {
+		input    string
+		expected string
+	}{
+		{"four", "4"},
+		{"", "0"},
+		{"123456", "6"},
+	}
+
+	for _, tc := range testCases {
+		got := strLen(tc.input)
+		if got != tc.expected {
+			t.Errorf("strLen(%q) = %q; expected %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
 func TestSubstringIndex(t *testing.T) {
 	tests := []struct {
 		str    string
